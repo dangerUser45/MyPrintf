@@ -9,6 +9,7 @@
     push rsi    ; second argument
     push rdi    ; first argument
     push rbx
+    push r11
 %endmacro
 ;--------------------------------------------------------------------------------
 %macro POP_6_PARAM 0x0
@@ -20,31 +21,12 @@
     pop r8     ; fifth argument
     pop r9     ; sixth argument
 %endmacro
-;--------------------------------------------------------------------------------
-%macro SYSCALL_PRINT 0x0
-    mov rsi, Buffer   ;| Argument: (rsi) - address source string (buffer)
-    sub rdi, rsi      ;|
-    mov rdx, rdi      ;| Argument: (rdx) - length source string (buffer)
-
-    mov rax, 0x01     ;| write64 (rdi, rsi, rdx) ... r10, r8, r9
-    mov rdi, 0x01     ;| stdout
-    syscall
-%endmacro
-;--------------------------------------------------------------------------------
-%macro SET_CHAR 0x0
-    mov rbx, [r8]               ;\ <=> mov byte from stack to buffer
-    mov [rdi], rbx              ;/
-
-    inc rdi                     ;\ - rdi++ чтобы установить правильное смещение буфера
-    add r8, 8                   ;| - r8 += 8 чтобы установить правильное смещение для аргументов в стеке
-    inc rsi                     ;/ - rsi++ чтобы установить правильное смещение в форматной строке
-%endmacro
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
 ;           CONSTS
 
-LENGTH_BUFFER                   equ     128d
+LENGTH_BUFFER                   equ     8d
 LENGTH_ERORR_UNKN_SPECFR_STRING equ     38d
 
 ;--------------------------------------------------------------------------------------------------------
@@ -71,11 +53,11 @@ section .text
     global MyPrintf
 ;--------------------------------------------------------------------------------
 MyPrintf:
-
+    mov r11, rsp
     pop r10
     PUSH_6_PARAM                                    ;| Пушу 6 параметров в стек
     mov r8, rsp                                     ;| сохраняется адрес последнего пуша
-    add r8, 16                                      ;| + 16, т.к. rodata(+8) и адрес при push rbx(+8) - скип
+    add r8, 24                                      ;| + 16, т.к. rodata(+8) и адрес при push rbx(+8) - скип
     mov rsi, rdi                                    ;| rsi - Msg
     lea rdi, Buffer                                 ;| rdi - Buffer
 
@@ -88,7 +70,7 @@ MyPrintf:
         cmp rdi, Buffer + LENGTH_BUFFER             ;\ - проверяю в начале не заполнен ли буфер
         jne  .BufferIsOk                            ;/
 
-        call BufferReset
+        call BufferResetMain
         jmp .MainCycle
 
     .BufferIsOk:
@@ -106,9 +88,9 @@ MyPrintf:
         jmp .MainCycle                              ;/
 
     .EndPrintf:
-        SYSCALL_PRINT                               ;\ - завершение функции
-        mov r8, rsp                                 ;|
-        mov [r8], r10                               ;|
+        call SyscallPrint                               ;\ - завершение функции
+        pop rsp                                     ;|
+        mov [rsp], r10                              ;|
         ret                                         ;/
 
     .PutInBuffer:
@@ -168,8 +150,21 @@ ProcessingSpecifier:
 ;--------------------------------------------------------------------------------------------------------
 PrintChar:
 
-    SET_CHAR
+    call SetChar
     inc r9
+    ret
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
+SetChar:
+
+    mov bl, byte [r8]           ;\ <=> mov byte from stack to buffer
+    mov byte [rdi], bl          ;/
+
+    inc rdi                     ;\ - rdi++ чтобы установить правильное смещение буфера
+    add r8, 8                   ;| - r8 += 8 чтобы установить правильное смещение для аргументов в стеке
+    inc rsi                     ;/ - rsi++ чтобы установить правильное смещение в форматной строке
+
     ret
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -179,16 +174,17 @@ NumberHandler:
     std
     push rax
     inc rsi
+
     inc r9
 
-    mov rbx,  [r8]
+    mov  rbx,  [r8]
     push rbx
 
     call LengthNumber
+    add rdi, rax                        ;| add the length of the number (in bytes) to the buffer address
+    call CheckBuffer
 
     pop rbx
-
-    add rdi, rax                        ;| add the length of the number (in bytes) to the buffer address
     push rdi
 
     xor rax, rax
@@ -198,7 +194,6 @@ NumberHandler:
     and al, dl
 
     mov al, [TableHexDigits + rax]
-    call CheckBuffer
     stosb
 
     shr rbx, cl
@@ -223,21 +218,21 @@ LengthNumber:
 
     cmp rbx, 0x0
     je .End
-    inc al
+    inc eax
     shr rbx, cl
     jmp .Cycle
 
 .End:
-    dec al
+    dec eax
     ret
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
 CheckBuffer:
 
-    cmp rdi, Buffer + LENGTH_BUFFER             ;\ - проверяю не заполнен ли буфер
-    jne .BufferIsOK                              ;/
-    call BufferReset
+    cmp rdi, Buffer + LENGTH_BUFFER             ;| - проверяю не заполнен ли буфер
+    jb .BufferIsOK                              ;| - если буфер не заполнен  => ret
+    call BufferReset                            ;| - в противном случае => очистка буфера
 
     .BufferIsOK:
     ret
@@ -246,24 +241,49 @@ CheckBuffer:
 ;--------------------------------------------------------------------------------------------------------
 BufferReset:
 
-    push rdi
     push rsi
     push rdx
     push rcx
     push rax
     push rbx
-    SYSCALL_PRINT                               ;\ - call functions which printing all buffer
+    sub rdi, rax
+    call SyscallPrint                               ;| - call functions which printing all buffer
     pop rbx
     pop rax
     pop rcx
     pop rdx
     pop rsi
-    pop rdi                                     ;/
 
     lea rdi, Buffer                             ;\ - set new buffer
-    mov al, '%'                                 ;|
-                                                ;|
-    ret                                         ;/
+    add rdi, rax                                ;/
+
+    ret
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
+BufferResetMain:
+
+    push rsi
+    call SyscallPrint
+    pop rsi
+
+    mov al, '%'
+    lea rdi, Buffer
+    ret
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
+SyscallPrint:
+
+    mov rsi, Buffer   ;| Argument: (rsi) - address source string (buffer)
+    sub rdi, rsi      ;|
+    mov rdx, rdi      ;| Argument: (rdx) - length source string (buffer)
+
+    mov rax, 0x01     ;| write64 (rdi, rsi, rdx) ... r10, r8, r9
+    mov rdi, 0x01     ;| stdout
+    syscall
+
+    ret
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
