@@ -26,7 +26,7 @@
 ;--------------------------------------------------------------------------------------------------------
 ;           CONSTS
 
-LENGTH_BUFFER                   equ     20d
+LENGTH_BUFFER                   equ     50d
 LENGTH_ERORR_UNKN_SPECFR_STRING equ     38d
 
 ;--------------------------------------------------------------------------------------------------------
@@ -34,13 +34,12 @@ LENGTH_ERORR_UNKN_SPECFR_STRING equ     38d
 ;--------------------------------------------------------------------------------------------------------
 section     .data
 
-JumpTable:                   dq CaseDefault, CaseB,       CaseC,       CaseD
-                             dq CaseDefault, CaseDefault, CaseDefault, CaseDefault
-                             dq CaseDefault, CaseDefault, CaseDefault, CaseDefault
-                             dq CaseDefault, CaseDefault, CaseO,       CaseDefault
-                             dq CaseDefault, CaseDefault, CaseS,       CaseDefault
-                             dq CaseDefault, CaseDefault, CaseDefault, CaseX
-                             dq CaseDefault, CaseDefault
+JumpTable:                   dq PrintBinary,           PrintChar,             PrintDecimal,          UnknownSpecifierError
+                             dq UnknownSpecifierError, UnknownSpecifierError, UnknownSpecifierError, UnknownSpecifierError
+                             dq UnknownSpecifierError, UnknownSpecifierError, UnknownSpecifierError, UnknownSpecifierError
+                             dq UnknownSpecifierError, PrintOct,              UnknownSpecifierError, UnknownSpecifierError
+                             dq UnknownSpecifierError, PrintString,           UnknownSpecifierError, UnknownSpecifierError
+                             dq UnknownSpecifierError, UnknownSpecifierError, PrintHex
 
 Buffer:                      db LENGTH_BUFFER dup(0x0)
 TableHexDigits:              db "0123456789abcdef"
@@ -106,45 +105,15 @@ ProcessingSpecifier:
 
     xor rbx, rbx
     mov bl, byte [rsi]
-    sub bl, 'a'
+    sub bl, 'b'
 
-    cmp bl, 0x0 - 0x1
-    ja CaseDefault
+    cmp bl, 0x0
+    jb UnknownSpecifierError
 
     cmp bl, 0x19
-    ja CaseDefault
+    ja UnknownSpecifierError
 
     jmp [JumpTable + 8 * rbx]
-
-    CaseB:
-        call PrintBinary
-        ret
-
-    CaseC:
-        call PrintChar
-        ret
-
-    CaseD:
-        ;call PrintDecimal
-        ;ret
-
-    CaseO:
-        call PrintOct
-        ret
-
-    CaseX:
-        call PrintHex
-        ret
-
-    CaseS:
-        ;call PrintString
-        ;ret
-
-    CaseDefault:
-        call UnknownSpecifierError
-        ret
-
-    ret
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
@@ -164,6 +133,14 @@ SetChar:
     inc rdi                     ;\ - rdi++ чтобы установить правильное смещение буфера
     add r8, 8                   ;| - r8 += 8 чтобы установить правильное смещение для аргументов в стеке
     inc rsi                     ;/ - rsi++ чтобы установить правильное смещение в форматной строке
+
+    ret
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
+PrintString:
+
+
 
     ret
 ;--------------------------------------------------------------------------------------------------------
@@ -295,6 +272,14 @@ PrintHex:
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+PrintDecimal:
+
+
+
+    ret
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
 PrintOct:
 
     mov dl, 0x7
@@ -318,10 +303,21 @@ PrintBinary:
 UnknownSpecifierError:
 
     push rsi
-    mov rsi, ErrorUnknownSpecifierString
+    cmp rdi, Buffer
+    je BufferIsClean
 
-    mov cx, LENGTH_ERORR_UNKN_SPECFR_STRING
+    call BufferResetMain
+
+BufferIsClean:
+
+    mov rsi, ErrorUnknownSpecifierString
+    mov rcx, LENGTH_ERORR_UNKN_SPECFR_STRING
     rep movsb
+
+    call SyscallPrint
+    mov rdi, Buffer
+    mov al, '%'
+
     pop rsi
     inc rsi
     add r8, 8
