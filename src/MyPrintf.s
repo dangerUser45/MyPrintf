@@ -1,29 +1,6 @@
-
-;=======================================================================================;
-;   rax - storage '%'                                                                   ;
-;   rbx - not used (callee-save register)                                               ;
-;                                                                                       ;
-;   rcx - not used                                                         \            ;
-;   rdx - not used                                                         | registers  ;
-;   rdi - address of buffer                                                | for        ;
-;   rsi - address of format string                                         | parametres ;
-;   r8  - address for param in stack                                       |            ;
-;   r9  - counter for param in stack                                       /            ;
-;                                                                                       ;
-;   rsp - stack top                                                                     ;
-;   rbp - stack bottom (callee-save register)                                           ;
-;                                                                                       ;
-;   r10 - address of arguments in stack                                                 ;
-;   r11 - register for indexing in jump table                                           ;
-;   r12 - not used (callee-save register)                                               ;
-;   r13 - not used (callee-save register)                                               ;
-;   r14 - not used (callee-save register)                                               ;
-;   r15 - not used (callee-save register)                                               ;
-;   r16 - not used (callee-save register)                                               ;
-;=======================================================================================;
 ;--------------------------------------------------------------------------------
 ;           MACRO
-
+;
 %macro PUSH_6_PARAM 0x0
     push r9     ; sixth argument
     push r8     ; fifth argument
@@ -65,32 +42,37 @@
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
-section     .data
+;           CONSTS
 
-JumpTable:  dq CaseB,       CaseC,       CaseD,       CaseDefault
-            dq CaseDefault, CaseDefault, CaseDefault, CaseDefault
-            dq CaseDefault, CaseDefault, CaseDefault, CaseDefault
-            dq CaseDefault, CaseO,       CaseDefault, CaseDefault
-            dq CaseDefault, CaseS,       CaseX
+LENGTH_BUFFER                   equ     128d
+LENGTH_ERORR_UNKN_SPECFR_STRING equ     38d
 
-Buffer:     db 128 dup(0x0)
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
-;           CONSTS
+section     .data
 
-LENGTH_BUFFER               equ         128d
+JumpTable:                   dq CaseDefault, CaseB,       CaseC,       CaseD
+                             dq CaseDefault, CaseDefault, CaseDefault, CaseDefault
+                             dq CaseDefault, CaseDefault, CaseDefault, CaseDefault
+                             dq CaseDefault, CaseDefault, CaseO,       CaseDefault
+                             dq CaseDefault, CaseDefault, CaseS,       CaseDefault
+                             dq CaseDefault, CaseDefault, CaseDefault, CaseX
+                             dq CaseDefault, CaseDefault
 
+Buffer:                      db LENGTH_BUFFER dup(0x0)
+TableHexDigits:              db "0123456789abcdef"
+ErrorUnknownSpecifierString: db  0x1B, 0x5B, 0x33, 0x31, 0x3B, 0x31, 0x6D, "%(ERROR: UNKNOWN SPECIFIER)", 0x1B, 0x5B, 0x30, 0x6D
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
 section .note.GNU-stack
 section .text
     global MyPrintf
-
 ;--------------------------------------------------------------------------------
 MyPrintf:
 
+    pop r10
     PUSH_6_PARAM                                    ;| Пушу 6 параметров в стек
     mov r8, rsp                                     ;| сохраняется адрес последнего пуша
     add r8, 16                                      ;| + 16, т.к. rodata(+8) и адрес при push rbx(+8) - скип
@@ -101,11 +83,15 @@ MyPrintf:
 
     mov al, '%'                                     ;| кладу в al - '%', чтобы в функции scasb сравнивать al и [rdi]
 
-    .Cycle:
+    .MainCycle:
 
         cmp rdi, Buffer + LENGTH_BUFFER             ;\ - проверяю в начале не заполнен ли буфер
-        je .BufferReset                             ;/
+        jne  .BufferIsOk                            ;/
 
+        call BufferReset
+        jmp .MainCycle
+
+    .BufferIsOk:
         mov dl, byte [rsi]                          ;\ - проверка текущего байта на '\0'
         cmp dl, 0x0                                 ;|
         je .EndPrintf                               ;/ - Если да => завершение функции, если нет => продолжаем
@@ -117,36 +103,28 @@ MyPrintf:
 
         jne .PutInBuffer                            ;\ - если нет '%' => кладём символ в буфер
         call ProcessingSpecifier                    ;| - если да      => вызываем обработчика спецификаторов
-        jmp .Cycle                                  ;/
+        jmp .MainCycle                              ;/
 
     .EndPrintf:
         SYSCALL_PRINT                               ;\ - завершение функции
-        POP_6_PARAM                                 ;|
+        mov r8, rsp                                 ;|
+        mov [r8], r10                               ;|
         ret                                         ;/
 
     .PutInBuffer:
         movsb                                       ;\
         movsb                                       ;| - move byte from format string to buffer
-        jmp .Cycle                                  ;/
-
-    .BufferReset:
-        push rsi
-        SYSCALL_PRINT                               ;\ - call functions which printing all buffer
-        pop rsi                                     ;|
-
-        lea rdi, Buffer                             ;| - set new buffer
-        mov al, '%'                                 ;|
-                                                    ;|
-        jmp .Cycle                                  ;/
+        jmp .MainCycle                              ;/
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
 ProcessingSpecifier:
-    inc rsi
+
+    inc rsi                                         ;| skip '%' in format string
 
     xor rbx, rbx
     mov bl, byte [rsi]
-    sub rbx, 'b'
+    sub bl, 'a'
 
     cmp bl, 0x0 - 0x1
     ja CaseDefault
@@ -157,7 +135,7 @@ ProcessingSpecifier:
     jmp [JumpTable + 8 * rbx]
 
     CaseB:
-        ;call PrintBinary
+        call PrintBinary
         ret
 
     CaseC:
@@ -166,21 +144,22 @@ ProcessingSpecifier:
 
     CaseD:
         ;call PrintInteger
-        ret
+        ;ret
 
     CaseO:
-        ;call PrintOct
+        call PrintOct
         ret
 
     CaseX:
-        ;call PrintDex
+        call PrintHex
         ret
 
     CaseS:
         ;call PrintString
-        ret
+        ;ret
 
     CaseDefault:
+        call UnknownSpecifierError
         ret
 
     ret
@@ -189,21 +168,146 @@ ProcessingSpecifier:
 ;--------------------------------------------------------------------------------------------------------
 PrintChar:
 
-    cmp r9, 6 - 1
-    je  .Counter_equal_six_param
-    jb  .Counter_below_six_param
-    jmp .Counter_above_six_param
-
-    .Counter_below_six_param:
-    inc r9
-    .Counter_above_six_param:
     SET_CHAR
+    inc r9
     ret
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
+NumberHandler:
 
-    .Counter_equal_six_param:
+    std
+    push rax
+    inc rsi
     inc r9
-    SET_CHAR
+
+    mov rbx,  [r8]
+    push rbx
+
+    call LengthNumber
+
+    pop rbx
+
+    add rdi, rax                        ;| add the length of the number (in bytes) to the buffer address
+    push rdi
+
+    xor rax, rax
+
+.SetNumber:
+    mov al, bl
+    and al, dl
+
+    mov al, [TableHexDigits + rax]
+    call CheckBuffer
+    stosb
+
+    shr rbx, cl
+    cmp rbx, 0x0
+    jne .SetNumber
+
+    pop rdi
+    inc rdi
+
     add r8, 8
+    pop rax
+    cld
+    ret
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
+LengthNumber:
+
+    xor rax, rax
+
+.Cycle:
+
+    cmp rbx, 0x0
+    je .End
+    inc al
+    shr rbx, cl
+    jmp .Cycle
+
+.End:
+    dec al
+    ret
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
+CheckBuffer:
+
+    cmp rdi, Buffer + LENGTH_BUFFER             ;\ - проверяю не заполнен ли буфер
+    jne .BufferIsOK                              ;/
+    call BufferReset
+
+    .BufferIsOK:
+    ret
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
+BufferReset:
+
+    push rdi
+    push rsi
+    push rdx
+    push rcx
+    push rax
+    push rbx
+    SYSCALL_PRINT                               ;\ - call functions which printing all buffer
+    pop rbx
+    pop rax
+    pop rcx
+    pop rdx
+    pop rsi
+    pop rdi                                     ;/
+
+    lea rdi, Buffer                             ;\ - set new buffer
+    mov al, '%'                                 ;|
+                                                ;|
+    ret                                         ;/
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
+PrintHex:
+
+    mov dl, 0xf
+    mov cl, 4
+
+    call NumberHandler
+    ret
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
+PrintOct:
+
+    mov dl, 0x7
+    mov cl, 3
+
+    call NumberHandler
+    ret
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
+PrintBinary:
+
+    mov dl, 0x1
+    mov cl, 1
+
+    call NumberHandler
+    ret
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
+UnknownSpecifierError:
+
+    push rsi
+    mov rsi, ErrorUnknownSpecifierString
+
+    mov cx, LENGTH_ERORR_UNKN_SPECFR_STRING
+    rep movsb
+    pop rsi
+    inc rsi
+    add r8, 8
+
     ret
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -211,7 +315,6 @@ PrintChar:
 ExitProgram:
 
     mov rax, 0x3C      ; exit64 (rdi)
-    xor rdi, rdi
     syscall
 
     ret
