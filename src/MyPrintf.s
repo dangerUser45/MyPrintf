@@ -26,7 +26,7 @@
 ;--------------------------------------------------------------------------------------------------------
 ;           CONSTS
 
-LENGTH_BUFFER                   equ     8d
+LENGTH_BUFFER                   equ     20d
 LENGTH_ERORR_UNKN_SPECFR_STRING equ     38d
 
 ;--------------------------------------------------------------------------------------------------------
@@ -125,7 +125,7 @@ ProcessingSpecifier:
         ret
 
     CaseD:
-        ;call PrintInteger
+        ;call PrintDecimal
         ;ret
 
     CaseO:
@@ -242,16 +242,14 @@ CheckBuffer:
 BufferReset:
 
     push rsi
-    push rdx
     push rcx
     push rax
-    push rbx
+    push rdx
     sub rdi, rax
     call SyscallPrint                               ;| - call functions which printing all buffer
-    pop rbx
+    pop rdx
     pop rax
     pop rcx
-    pop rdx
     pop rsi
 
     lea rdi, Buffer                             ;\ - set new buffer
