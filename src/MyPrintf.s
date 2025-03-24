@@ -26,7 +26,7 @@
 ;--------------------------------------------------------------------------------------------------------
 ;           CONSTS
 
-LENGTH_BUFFER                   equ     50d
+LENGTH_BUFFER                   equ     20d
 LENGTH_ERORR_UNKN_SPECFR_STRING equ     38d
 
 ;--------------------------------------------------------------------------------------------------------
@@ -139,8 +139,72 @@ SetChar:
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
 PrintString:
+    mov rbx, rax
+    mov rdx, rdi
+    push rsi
+    mov rdi, [r8]
+    mov rsi, rdi
 
+    call Strlen
+    mov rdi, rdx
 
+    cmp rcx, LENGTH_BUFFER - 10
+    ja .LongString
+
+    mov rax, rcx
+    add rcx, rdi
+
+    cmp rcx, Buffer + LENGTH_BUFFER
+    mov rcx, rax
+
+    jb .BufferIsOk
+
+    push rsi
+    push rcx
+    call BufferResetMain
+    pop rcx
+    pop rsi
+
+.BufferIsOk:
+    rep movsb
+
+.End:
+    add r8, 8
+    pop rsi
+    inc rsi
+    mov rax, rbx
+    ret
+
+.LongString:
+    push rcx
+    push rsi
+    call BufferResetMain
+    pop rsi
+    pop rcx
+
+    mov rdx, rcx      ;| Argument: (rdx) - length source string (buffer)
+    mov rax, 0x01     ;| write64 (rdi, rsi, rdx) ... r10, r8, r9
+    mov rdi, 0x01     ;| stdout
+    syscall
+    mov rdi, Buffer
+    jmp .End
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
+
+; Strlen counts the number of characters in the string until it reaches the '$' character
+; ENTRY: None
+; EXIT:  CX - result
+; DESTR: AL, RCX
+
+Strlen:
+
+    mov al, 0x0
+    xor rcx, rcx
+    dec rcx
+    repne scasb
+    neg rcx
+    sub rcx, 2
 
     ret
 ;--------------------------------------------------------------------------------------------------------
@@ -223,7 +287,7 @@ BufferReset:
     push rax
     push rdx
     sub rdi, rax
-    call SyscallPrint                               ;| - call functions which printing all buffer
+    call SyscallPrint                          ;| - call functions which printing all buffer
     pop rdx
     pop rax
     pop rcx
@@ -304,17 +368,18 @@ UnknownSpecifierError:
 
     push rsi
     cmp rdi, Buffer
-    je BufferIsClean
+    je .BufferIsClean
 
     call BufferResetMain
 
-BufferIsClean:
+.BufferIsClean:
+    mov rsi, ErrorUnknownSpecifierString    ;| Argument: (rsi) - address source string (buffer)
+    mov rdx, LENGTH_ERORR_UNKN_SPECFR_STRING;| Argument: (rdx) - length source string (buffer)
 
-    mov rsi, ErrorUnknownSpecifierString
-    mov rcx, LENGTH_ERORR_UNKN_SPECFR_STRING
-    rep movsb
+    mov rax, 0x01                           ;| write64 (rdi, rsi, rdx) ... r10, r8, r9
+    mov rdi, 0x01                           ;| stdout
+    syscall
 
-    call SyscallPrint
     mov rdi, Buffer
     mov al, '%'
 
