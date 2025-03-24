@@ -26,7 +26,7 @@
 ;--------------------------------------------------------------------------------------------------------
 ;           CONSTS
 
-LENGTH_BUFFER                   equ     20d
+LENGTH_BUFFER                   equ     64d
 LENGTH_ERORR_UNKN_SPECFR_STRING equ     38d
 
 ;--------------------------------------------------------------------------------------------------------
@@ -220,8 +220,15 @@ NumberHandler:
 
     mov  rbx,  [r8]
     push rbx
-
     call LengthNumber
+
+    test rbx, rbx
+    jns .NumIsPositive
+    neg rbx
+    inc rax
+    mov dh, 0x1
+
+.NumIsPositive:
     add rdi, rax                        ;| add the length of the number (in bytes) to the buffer address
     call CheckBuffer
 
@@ -241,6 +248,12 @@ NumberHandler:
     cmp rbx, 0x0
     jne .SetNumber
 
+    cmp dh, 0x1
+    jne .SkipMinus
+    mov al, '-'
+    stosb
+
+.SkipMinus:
     pop rdi
     inc rdi
 
@@ -338,8 +351,65 @@ PrintHex:
 ;--------------------------------------------------------------------------------------------------------
 PrintDecimal:
 
+    push rsi
+    mov rax, [r8]
 
+    mov rbx, 10d
+    test rax, rax
+    jns .NumberIsPositive
 
+.NumberIsNegative:
+    mov byte [rdi], '-'
+    inc rdi
+    neg rax
+
+.NumberIsPositive:
+    xor rdx, rdx
+    call LengthNumberDecimal
+
+    add rdi, rcx
+    push rdi
+
+    mov rsi, rax
+    mov rax, rcx
+    call CheckBuffer
+    mov rax, rsi
+
+.Cycle:
+
+    xor rdx, rdx
+    div rbx
+    add dl, '0'
+    mov byte [rdi], dl
+    dec rdi
+    test rax, rax
+    jne .Cycle
+
+.End:
+    pop rdi
+    inc rdi
+    pop rsi
+    inc rsi
+    mov al, '%'
+    add r8, 8
+    ret
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
+LengthNumberDecimal:
+
+    push rax
+    xor rcx, rcx
+
+.Cycle:
+    xor rdx, rdx
+    div rbx
+    inc rcx
+    test rax, rax
+    jne .Cycle
+
+    dec rcx
+    pop rax
     ret
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
