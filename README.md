@@ -36,6 +36,7 @@ sudo apt update
 sudo apt install make g++ nasm
 git clone https://GitHub.com/dangerUser45/MyPrintf/
 cd MyPrintf
+mkdir build
 make
 ```
 
