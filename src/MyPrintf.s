@@ -1,6 +1,8 @@
-;--------------------------------------------------------------------------------
+;--------------------------------------------------------------------------------------------------------
+;////////////////////////////////////////////////////////////////////////////////////////////////////////
+;--------------------------------------------------------------------------------------------------------
 ;           MACRO
-;
+
 %macro PUSH_6_PARAM 0x0
     push r9     ; sixth argument
     push r8     ; fifth argument
@@ -10,16 +12,6 @@
     push rdi    ; first argument
     push rbx
     push r11
-%endmacro
-;--------------------------------------------------------------------------------
-%macro POP_6_PARAM 0x0
-    pop rbx
-    pop rdi    ; first argument
-    pop rsi    ; second argument
-    pop rdx    ; third argument
-    pop rcx    ; fourth  argument
-    pop r8     ; fifth argument
-    pop r9     ; sixth argument
 %endmacro
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -34,12 +26,15 @@ LENGTH_ERORR_UNKN_SPECFR_STRING equ     38d
 ;--------------------------------------------------------------------------------------------------------
 section     .data
 
-JumpTable:                   dq PrintBinary,           PrintChar,             PrintDecimal,          UnknownSpecifierError
-                             dq UnknownSpecifierError, UnknownSpecifierError, UnknownSpecifierError, UnknownSpecifierError
-                             dq UnknownSpecifierError, UnknownSpecifierError, UnknownSpecifierError, UnknownSpecifierError
-                             dq UnknownSpecifierError, PrintOct,              UnknownSpecifierError, UnknownSpecifierError
-                             dq UnknownSpecifierError, PrintString,           UnknownSpecifierError, UnknownSpecifierError
-                             dq UnknownSpecifierError, UnknownSpecifierError, PrintHex
+JumpTable:                   dq PrintBinary
+                             dq PrintChar
+                             dq PrintDecimal
+                             times 'o' - 'd' - 1 dq UnknownSpecifierError
+                             dq PrintOct
+                             times 's' - 'o' - 1 dq UnknownSpecifierError
+                             dq PrintString
+                             times 'x' - 's' - 1 dq UnknownSpecifierError
+                             dq PrintHex
 
 Buffer:                      db LENGTH_BUFFER dup(0x0)
 TableHexDigits:              db "0123456789abcdef"
@@ -47,20 +42,27 @@ ErrorUnknownSpecifierString: db  0x1B, 0x5B, 0x33, 0x31, 0x3B, 0x31, 0x6D, "%(ER
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+
 section .note.GNU-stack
 section .text
     global MyPrintf
-;--------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------------------------------;
+; DESCRIPTION: printf to stdout                                                                         ;
+; ENTRY:   None                                                                                         ;
+; EXIT:    None                                                                                         ;
+; DESTROY: RAX, RBX, RCX, RDX, RDI, RSI, R8, R11                                                        ;
+;-------------------------------------------------------------------------------------------------------;
 MyPrintf:
     mov r11, rsp
     pop r10
-    PUSH_6_PARAM                                    ;| Пушу 6 параметров в стек
+    PUSH_6_PARAM                                    ;| Пушу регистры в стек
     mov r8, rsp                                     ;| сохраняется адрес последнего пуша
     add r8, 24                                      ;| + 16, т.к. rodata(+8) и адрес при push rbx(+8) - скип
     mov rsi, rdi                                    ;| rsi - Msg
     lea rdi, Buffer                                 ;| rdi - Buffer
 
-    xor r9, r9
+
 
     mov al, '%'                                     ;| кладу в al - '%', чтобы в функции scasb сравнивать al и [rdi]
 
@@ -99,45 +101,65 @@ MyPrintf:
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+; DESCRIPTION:  Specifiers are processed                                                                ;
+; ENTRY:        RDI - address buffer; RSI - address format string                                       ;
+;               R8  - stack address where the current parameter is stored                               ;
+;                                                                                                       ;
+; EXIT:         None                                                                                    ;
+; DESTROY:      RBX, RDI, RSI                                                                           ;
+;-------------------------------------------------------------------------------------------------------;
 ProcessingSpecifier:
 
     inc rsi                                         ;| skip '%' in format string
 
     xor rbx, rbx
     mov bl, byte [rsi]
-    sub bl, 'b'
 
-    cmp bl, 0x0
+    cmp bl, '%'
+    jne .Next
+    mov byte [rdi], bl
+    inc rsi
+    inc rdi
+    ret
+
+    .Next:
+    cmp bl, 'b'
     jb UnknownSpecifierError
 
-    cmp bl, 0x19
+    cmp bl, 'x'
     ja UnknownSpecifierError
 
-    jmp [JumpTable + 8 * rbx]
+    jmp [JumpTable + 8 * (rbx - 'b')]
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+; DESCRIPTION:  put char in buffer                                                                      ;
+; ENTRY:        RDI - address buffer; RSI - address format string                                       ;
+;               R8  - stack address where the current parameter is stored                               ;
+;                                                                                                       ;
+; EXIT:         None                                                                                    ;
+; DESTROY:      BL                                                                                      ;
+;-------------------------------------------------------------------------------------------------------;
 PrintChar:
 
-    call SetChar
-    inc r9
-    ret
-;--------------------------------------------------------------------------------------------------------
-;////////////////////////////////////////////////////////////////////////////////////////////////////////
-;--------------------------------------------------------------------------------------------------------
-SetChar:
+    mov bl, byte [r8]                               ;\ <=> mov byte from stack to buffer
+    mov byte [rdi], bl                              ;/
 
-    mov bl, byte [r8]           ;\ <=> mov byte from stack to buffer
-    mov byte [rdi], bl          ;/
-
-    inc rdi                     ;\ - rdi++ чтобы установить правильное смещение буфера
-    add r8, 8                   ;| - r8 += 8 чтобы установить правильное смещение для аргументов в стеке
-    inc rsi                     ;/ - rsi++ чтобы установить правильное смещение в форматной строке
+    inc rdi                                         ;\ - rdi++ чтобы установить правильное смещение буфера
+    add r8, 8                                       ;| - r8 += 8 чтобы установить правильное смещение для аргументов в стеке
+    inc rsi                                         ;/ - rsi++ чтобы установить правильное смещение в форматной строке
 
     ret
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+; DESCRIPTION:  printf string from parametr with specifier %s                                           ;
+; ENTRY:        RDI - address buffer; RSI - address format string                                       ;
+;               R8  - stack address where the current parameter is stored                               ;
+;                                                                                                       ;
+; EXIT:         None                                                                                    ;
+; DESTROY:      RAX, RBX, RCX                                                                           ;
+;-------------------------------------------------------------------------------------------------------;
 PrintString:
     mov rbx, rax
     mov rdx, rdi
@@ -182,21 +204,22 @@ PrintString:
     pop rsi
     pop rcx
 
-    mov rdx, rcx      ;| Argument: (rdx) - length source string (buffer)
-    mov rax, 0x01     ;| write64 (rdi, rsi, rdx) ... r10, r8, r9
-    mov rdi, 0x01     ;| stdout
+    mov rdx, rcx                                        ;| Argument: (rdx) - length source string (buffer)
+    mov rax, 0x01                                       ;| write64 (rdi, rsi, rdx) ... r10, r8, r9
+    mov rdi, 0x01                                       ;| stdout
     syscall
     mov rdi, Buffer
     jmp .End
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
-
-; Strlen counts the number of characters in the string until it reaches the '$' character
-; ENTRY: None
-; EXIT:  CX - result
-; DESTR: AL, RCX
-
+; DESCRIPTION:  Strlen counts the number of characters in the string                                    ;
+; ENTRY:        RDI - address buffer; RSI - address format string                                       ;
+;               R8 - stack address where the current parameter is stored                                ;
+;                                                                                                       ;
+; EXIT:         RCX - length of string                                                                  ;
+; DESTROY:      AL, RCX                                                                                 ;
+;-------------------------------------------------------------------------------------------------------;
 Strlen:
 
     mov al, 0x0
@@ -210,13 +233,18 @@ Strlen:
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+; DESCRIPTION:  Numbers with base divisible by 2 are converted to ASCII-code and put into the buffer    ;
+; ENTRY:        RDI - address buffer; RSI - address format string                                       ;
+;               R8 - stack address where the current parameter is stored                                ;
+;                                                                                                       ;
+; EXIT:         None                                                                                    ;
+; DESTROY:      RAX, RBX, RCX , RDX                                                                     ;
+;-------------------------------------------------------------------------------------------------------;
 NumberHandler:
 
     std
     push rax
     inc rsi
-
-    inc r9
 
     mov  rbx,  [r8]
     push rbx
@@ -229,7 +257,7 @@ NumberHandler:
     mov dh, 0x1
 
 .NumIsPositive:
-    add rdi, rax                        ;| add the length of the number (in bytes) to the buffer address
+    add rdi, rax                                        ;| add the length of the number (in bytes) to the buffer address
     call CheckBuffer
 
     pop rbx
@@ -264,6 +292,12 @@ NumberHandler:
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+; DESCRIPTION:  Strlen counts the number of characters in the string                                    ;
+; ENTRY:        CL - number of bits defining one digit in the current number system                     ;
+;                                                                                                       ;
+; EXIT:         EAX - quantity of digits in number                                                      ;
+; DESTROY:      RAX, RBX                                                                                ;
+;-------------------------------------------------------------------------------------------------------;
 LengthNumber:
 
     xor rax, rax
@@ -282,17 +316,30 @@ LengthNumber:
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+; DESCRIPTION:  The buffer is checked for overflow                                                      ;
+; ENTRY:        RDI - address buffer; RSI - address format string                                       ;;                                                                                                       ;
+; EXIT:         None                                                                                    ;
+; DESTROY:      None                                                                                    ;
+;-------------------------------------------------------------------------------------------------------;
 CheckBuffer:
 
-    cmp rdi, Buffer + LENGTH_BUFFER             ;| - проверяю не заполнен ли буфер
-    jb .BufferIsOK                              ;| - если буфер не заполнен  => ret
-    call BufferReset                            ;| - в противном случае => очистка буфера
+    cmp rdi, Buffer + LENGTH_BUFFER                 ;| - проверяю не заполнен ли буфер
+    jb .BufferIsOK                                  ;| - если буфер не заполнен  => ret
+    call BufferReset                                ;| - в противном случае => очистка буфера
 
     .BufferIsOK:
     ret
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+; DESCRIPTION:  Resets the buffer - syscall, which prints the contents of the
+;               buffer and then sets rdi to the beginning for future use                                ;
+
+; ENTRY:        RDI - address buffer; RSI - address format string                                       ;
+;                                                                                                       ;
+; EXIT:         None                                                                                    ;
+; DESTROY:      None                                                                                    ;
+;-------------------------------------------------------------------------------------------------------;
 BufferReset:
 
     push rsi
@@ -300,19 +347,27 @@ BufferReset:
     push rax
     push rdx
     sub rdi, rax
-    call SyscallPrint                          ;| - call functions which printing all buffer
+    call SyscallPrint                               ;| - call functions which printing all buffer
     pop rdx
     pop rax
     pop rcx
     pop rsi
 
-    lea rdi, Buffer                             ;\ - set new buffer
-    add rdi, rax                                ;/
+    lea rdi, Buffer                                 ;\ - set new buffer
+    add rdi, rax                                    ;/
 
     ret
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+; DESCRIPTION:  It works similarly to the “BufferReset” function                                        ;
+;               but it is used in the main loop in main                                                 ;
+;                                                                                                       ;
+; ENTRY:        RDI - address buffer; RSI - address format string                                       ;
+;                                                                                                       ;
+; EXIT:         None                                                                                    ;
+; DESTROY:      None                                                                                    ;
+;-------------------------------------------------------------------------------------------------------;
 BufferResetMain:
 
     push rsi
@@ -325,20 +380,33 @@ BufferResetMain:
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+; DESCRIPTION:  Displays the contents of the buffer                                    ;
+; ENTRY:        RDI - address buffer; RSI - address format string                                       ;
+;               R8 - stack address where the current parameter is stored                                ;
+;                                                                                                       ;
+; EXIT:         None                                                                                    ;
+; DESTROY:      RAX, RDX, RSI, RDI                                                                      ;
+;-------------------------------------------------------------------------------------------------------;
 SyscallPrint:
 
-    mov rsi, Buffer   ;| Argument: (rsi) - address source string (buffer)
-    sub rdi, rsi      ;|
-    mov rdx, rdi      ;| Argument: (rdx) - length source string (buffer)
+    mov rsi, Buffer                                 ;| Argument: (rsi) - address source string (buffer)
+    sub rdi, rsi                                    ;|
+    mov rdx, rdi                                    ;| Argument: (rdx) - length source string (buffer)
 
-    mov rax, 0x01     ;| write64 (rdi, rsi, rdx) ... r10, r8, r9
-    mov rdi, 0x01     ;| stdout
+    mov rax, 0x01                                   ;| write64 (rdi, rsi, rdx) ... r10, r8, r9
+    mov rdi, 0x01                                   ;| stdout
     syscall
 
     ret
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+; DESCRIPTION:  Puts numbers in hexadecimal format into the ASCII - codes buffer                        ;
+; ENTRY:        None                                                                                    ;
+;                                                                                                       ;
+; EXIT:         None                                                                                    ;
+; DESTROY:      CL, DL                                                                                  ;
+;-------------------------------------------------------------------------------------------------------;
 PrintHex:
 
     mov dl, 0xf
@@ -349,40 +417,48 @@ PrintHex:
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+; DESCRIPTION:  Strlen counts the number of characters in the string                                    ;
+; ENTRY:        RDI - address buffer; RSI - address format string                                       ;
+;               RBX - the base of the number system, i.e. 10d                                           ;
+;               R8 - stack address where the current parameter is stored                                ;
+;
+; EXIT:         None                                                                                    ;
+; DESTROY:      AL, RCX                                                                                 ;
+;-------------------------------------------------------------------------------------------------------;
 PrintDecimal:
 
     push rsi
-    mov rax, [r8]
+    mov eax, [r8]
 
-    mov rbx, 10d
-    test rax, rax
+    mov ebx, 10d
+    test eax, eax
     jns .NumberIsPositive
 
 .NumberIsNegative:
     mov byte [rdi], '-'
     inc rdi
-    neg rax
+    neg eax
 
 .NumberIsPositive:
-    xor rdx, rdx
+    xor edx, edx
     call LengthNumberDecimal
 
     add rdi, rcx
     push rdi
 
-    mov rsi, rax
+    mov esi, eax
     mov rax, rcx
     call CheckBuffer
-    mov rax, rsi
+    mov eax, esi
 
 .Cycle:
 
-    xor rdx, rdx
-    div rbx
+    xor edx, edx
+    div ebx
     add dl, '0'
     mov byte [rdi], dl
     dec rdi
-    test rax, rax
+    test eax, eax
     jne .Cycle
 
 .End:
@@ -396,6 +472,14 @@ PrintDecimal:
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+; DESCRIPTION:  Strlen counts the number in decinal format                                              ;
+; ENTRY:        RDI - address buffer; RSI - address format string                                       ;
+;               RBX - the base of the number system, i.e. 10d                                           ;
+;               R8 - stack address where the current parameter is stored                                ;
+;
+; EXIT:         None                                                                                    ;
+; DESTROY:      RCX, RDX                                                                                ;
+;-------------------------------------------------------------------------------------------------------;
 LengthNumberDecimal:
 
     push rax
@@ -414,6 +498,12 @@ LengthNumberDecimal:
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+; DESCRIPTION:  Puts numbers in octal format into the ASCII - codes buffer                              ;
+; ENTRY:        None                                                                                    ;
+;                                                                                                       ;
+; EXIT:         None                                                                                    ;
+; DESTROY:      CL, DL                                                                                  ;
+;-------------------------------------------------------------------------------------------------------;
 PrintOct:
 
     mov dl, 0x7
@@ -424,6 +514,12 @@ PrintOct:
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+; DESCRIPTION:  Puts numbers in binary format into the ASCII - codes buffer                              ;
+; ENTRY:        None                                                                                    ;
+;                                                                                                       ;
+; EXIT:         None                                                                                    ;
+; DESTROY:      CL, DL                                                                                  ;
+;-------------------------------------------------------------------------------------------------------;
 PrintBinary:
 
     mov dl, 0x1
@@ -434,6 +530,13 @@ PrintBinary:
 ;--------------------------------------------------------------------------------------------------------
 ;////////////////////////////////////////////////////////////////////////////////////////////////////////
 ;--------------------------------------------------------------------------------------------------------
+; DESCRIPTION:  Error handling of incorrect specifier (unprocessed ASCII code after ‘%’)                ;
+; ENTRY:        RDI - address buffer; RSI - address format string                                       ;
+;               R8 - stack address where the current parameter is stored                                ;
+;                                                                                                       ;
+; EXIT:        None                                                                                     ;
+; DESTROY:     RAX                                                                                      ;
+;-------------------------------------------------------------------------------------------------------;
 UnknownSpecifierError:
 
     push rsi
@@ -443,11 +546,11 @@ UnknownSpecifierError:
     call BufferResetMain
 
 .BufferIsClean:
-    mov rsi, ErrorUnknownSpecifierString    ;| Argument: (rsi) - address source string (buffer)
-    mov rdx, LENGTH_ERORR_UNKN_SPECFR_STRING;| Argument: (rdx) - length source string (buffer)
+    mov rsi, ErrorUnknownSpecifierString                    ;| Argument: (rsi) - address source string (buffer)
+    mov rdx, LENGTH_ERORR_UNKN_SPECFR_STRING                ;| Argument: (rdx) - length source string (buffer)
 
-    mov rax, 0x01                           ;| write64 (rdi, rsi, rdx) ... r10, r8, r9
-    mov rdi, 0x01                           ;| stdout
+    mov rax, 0x01                                           ;| write64 (rdi, rsi, rdx) ... r10, r8, r9
+    mov rdi, 0x01                                           ;| stdout
     syscall
 
     mov rdi, Buffer
@@ -456,15 +559,6 @@ UnknownSpecifierError:
     pop rsi
     inc rsi
     add r8, 8
-
-    ret
-;--------------------------------------------------------------------------------------------------------
-;////////////////////////////////////////////////////////////////////////////////////////////////////////
-;--------------------------------------------------------------------------------------------------------
-ExitProgram:
-
-    mov rax, 0x3C      ; exit64 (rdi)
-    syscall
 
     ret
 ;--------------------------------------------------------------------------------------------------------
