@@ -4,6 +4,7 @@ extern "C" void MyPrintf(const char* format, ...);
 
 int main ()
 {
+MyPrintf ("Mathematical %s: %o + (%d) + %b - %x %c %d\n", "facts", 04, -2, 0b100, 0x50,'=', 52);
 //      MyPrintf ("%d %s %x %d%%%c%b\n\n", -1, "love", 3802, 100, 33, 126);
 //
 //      MyPrintf ("\n\t\t\t\t" YELLOW "My printf ():" RESET "\n"
@@ -29,6 +30,5 @@ int main ()
 //             "\t\t\tEigth    arg: " GREEN "%b" RESET "\n\n", -404, 0x34, 01234567, 0b100100100100, 65, 25, 0xDED, 33, 0b1010);
 //      MyPrintf ("%s", "I like cookies\n");
 
-MyPrintf ("Mathematical %s: %o + (%d) + %b - %x %c %d\n", "facts", 04, -2, 0b100, 0x50,'=', 52);
 
 }
